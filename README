@@ -1,0 +1,17 @@
+Indexed
+=======
+
+'Index the content of your CPAN mini repository'
+
+
+INSTALLATION
+------------
+
+To install this module type the following:
+
+   perl Build.PL
+   ./Build
+   ./Build test
+   ./Build install
+
+
