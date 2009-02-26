@@ -23,3 +23,12 @@ throws_ok
 	}
 	qr//, 'failed' ;
 }
+
+#~ create a mini cpan
+#~ index files
+#~ change file
+#~ re index
+#~ remove file
+#~ re index
+#~ add file
+#~ re index

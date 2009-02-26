@@ -141,6 +141,7 @@ my $build = $class->new
 		'Test::NoWarnings' => 0,
 		'Test::Warn' => 0,
 		},
+		
 	requires => 
 		{
 		'Readonly'         => 0,
@@ -150,6 +151,10 @@ my $build = $class->new
 		'Time::HiRes'     => 0,
 		'Search::Indexer' => 0.75,
 		'Term::Bash::Completion::Generator' => 0,
+		'Text::Pluralize' => 0,
+		'File::Find::Rule' => 0,
+		'IO::Zlib' => 0,
+		'Archive::Tar' => 0,
 		},
 		
 	pm_files     => \%all_modules,

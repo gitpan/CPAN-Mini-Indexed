@@ -1,19 +1,12 @@
 
 package CPAN::Mini::Indexed ;
-#use base ;
 
-use strict;
+use strict ;
 use warnings ;
 use Carp ;
 
 BEGIN 
 {
-#~ use Exporter ;
-#~ use vars qw ($VERSION @ISA @EXPORT_OK @EXPORT_OK %EXPORT_TAGS);
-#~ @ISA = qw(Exporter);
-#~ @EXPORT_OK   = qw ();
-#~ %EXPORT_TAGS = (all => [@EXPORT_OK]);
-
 use Sub::Exporter -setup => 
 	{
 	exports => [ qw() ],
@@ -24,7 +17,7 @@ use Sub::Exporter -setup =>
 	};
 	
 use vars qw ($VERSION);
-$VERSION     = '0.01_01';
+$VERSION     = '0.02_01';
 }
 
 #-------------------------------------------------------------------------------
@@ -33,8 +26,6 @@ use English qw( -no_match_vars ) ;
 
 use Readonly ;
 Readonly my $EMPTY_STRING => q{} ;
-
-use Carp qw(carp croak confess) ;
 
 #-------------------------------------------------------------------------------
 
