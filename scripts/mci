@@ -46,6 +46,8 @@ mail the author if you can't find one at the above URL.
   
   'cpan_mini'             cpan mini location or $ENV{CPAN_MINI} or '/devel/cpan'
   'no_index_update'       search the current database without checking if it is up to date
+  'modules_only'          only show containing module name in the search results
+  'n|lines=i'             display the first N search matches
   'maximum_document_size' files over that size are not indexed, default is 300 KB
   'verbose'               show extra indexing information or search scores
   'database_information'  show some information about the database
@@ -62,26 +64,17 @@ mail the author if you can't find one at the above URL.
 
 #------------------------------------------------------------------------------------------------------------------------
 
-our $VERSION = '0.02' ;
+our $VERSION = '0.03' ;
 
 use Getopt::Long ;
 use Term::Bash::Completion::Generator ;
+
 use Readonly ;
 Readonly my $EMPTY_STRING => q{} ;
 
 use English qw( -no_match_vars ) ;
 
-use Time::HiRes 'time' ;
-use File::Temp ;
-use Text::Pluralize;
-use File::Find::Rule ;
-use IO::Zlib ;
-use Archive::Tar ;
-
-use Search::Indexer::Incremental::MD5 qw() ;
-use Search::Indexer::Incremental::MD5::Indexer qw() ;
-use Search::Indexer::Incremental::MD5::Searcher qw() ;
-use Search::Indexer::Incremental::MD5::Language::Perl qw() ;
+use CPAN::Mini::Indexed qw( search check_index show_database_information) ;
 
 #---------------------------------------------------------------------------------------------------------
 
@@ -116,7 +109,13 @@ sub mci
 #~ =cut
 
 my (@arguments) = @_ ;
-my ($options, @files)  = get_options(@arguments) ;
+my ($options, @unexpected_data)  = get_options(@arguments) ;
+
+if(@unexpected_data)
+	{
+	print {*STDERR} "Error: Don't know what to do with '" . join(' ', @unexpected_data) . "' you passed on the command line!\n" ;
+	exit(1) ;
+	}
 
 if($options->{completion_script})
 	{
@@ -126,253 +125,14 @@ if($options->{completion_script})
 
 if($options->{database_information})
 	{
-	my $information = Search::Indexer::Incremental::MD5::show_database_information($options->{index_directory}) ;
-	
-	print <<"EOI" ;
-Location: $options->{index_directory}
-Last updated on: $information->{update_date}
-Number of indexed documents: $information->{entries }
-Database size: $information->{size} bytes
-EOI
+	show_database_information($options) ;
 	exit(0) ;
 	}
 
 check_index($options) unless $options->{no_index_update};
-
-if($options->{search})
-	{
-	my $searcher 
-		= eval 
-			{
-			Search::Indexer::Incremental::MD5::Searcher->new
-				(
-				INDEX_DIRECTORY => $options->{index_directory}, 
-				USE_POSITIONS => 0, 
-				WORD_REGEX => qr/\w+/,
-				);
-			} or croak "No full text index found! $EVAL_ERROR\n" ;
-
-	my $results  = $searcher->search(SEARCH_STRING => $options->{search}) ;
-
-	my @indexes = map { $_->[0] }
-					reverse
-						sort { $a->[1] <=> $b->[1] }
-							map { [$_, $results->[$_]{SCORE}] }
-								0 .. $#$results ;
-
-	for my $index (@indexes)
-		{
-		my $matching_file = $results->[$index]{PATH} ;
-		
-		unless($matching_file)
-			{
-			carp "matched id:'$results->[$index]{ID}' which was removed!\n" ;
-			next ;
-			}
-		
-		(my $matching_file_short = $matching_file) =~ s{^/tmp/[^/]+/}{} ;
-		
-		if($options->{verbose})
-			{
-			print {*STDOUT} "'$matching_file_short' [id:'$results->[$index]{ID}', score: '$results->[$index]{SCORE}]'\n" ;
-			}
-		else
-			{
-			print {*STDOUT} "$matching_file_short\n" ;
-			}
-		}
-	}
+search($options) if $options->{search} ;
 }
 
-#----------------------------------------------------------------------------------------------------------
-
-sub check_index
-{
-
-#~ =head2 check_index($indexer, $options)
-
-#~  brings the cpan mini index database up to date
-
-#~ I<Arguments> - 
-
-#~ $indexer, $options
-
-#~ I<Returns> -  Nothing
-
-#~ I<Exceptions> - 
-
-#~ =cut
-
-my ($options) = @_ ;
-
-my @stopwords = (STOPWORDS => $options->{stopwords_file}) if $options->{stopwords_file} ;
-
-my $indexer = Search::Indexer::Incremental::MD5::Indexer->new
-				(
-				INDEX_DIRECTORY => $options->{index_directory}, 
-				USE_POSITIONS => 0, 
-				Search::Indexer::Incremental::MD5::Language::Perl::get_perl_word_regex_and_stopwords(),
-				@stopwords,
-				) ;
-
-my $cpan_mini = $options->{cpan_mini} || $ENV{CPAN_MINI} || '/devel/cpan' ;
-$cpan_mini =~ s{^\./}[] ;
-$cpan_mini =~ s{/$}[] ;
-
-croak "Invalid cpan mini repository!\n" if $cpan_mini eq $EMPTY_STRING;
-
-printf "[CPAN mini repository in '$cpan_mini']\n" if ($options->{verbose}) ;
-
-my $t0_index = time;
-
-my %modules_in_repository 
-	#~ = map {chomp($_) ; s/^$cpan_mini\/// ; $_ => 1} 
-	= map {chomp($_) ; $_ => 1} 
-		File::Find::Rule
-			->file()
-			->name('*.tar.gz')
-			->in($cpan_mini);
-
-#~ use Data::TreeDumper ;
-#~ print DumpTree \%modules_in_repository  ;
-
-my %modules_up_to_date ;
-my %indexed_modules_to_remove ;
-
-$indexer->check_indexed_files
-		(
-		DONE_ONE_FILE_CALLBACK =>
-			sub 
-			{
-			my ($file, $description, $file_info) = @_ ;			
-			
-			if(exists $modules_in_repository{"$cpan_mini/$description"})
-				{
-				# we can't delete $modules_in_repository{$cpan_mini . $description} as
-				# it may contain multiple indexed files
-				$modules_up_to_date{"$cpan_mini/$description"}++ ;
-				}
-			else
-				{
-				#~ print "removing '$file' from module '$cpan_mini/$description'\n" ;
-				
-				$indexed_modules_to_remove{$description}{$file} = $file_info->{ID} ;
-				}
-			},
-		) ;
-
-# remove modules that don't exist anymore
-my $t0_remove = time ;
-
-my $number_of_modules = scalar(keys %indexed_modules_to_remove) ;
-my $module_index = 0 ;
-my $total_number_of_files = 0 ;
-
-for my $module_to_remove(sort keys %indexed_modules_to_remove)
-	{
-	my $t0_remove_module = time ;
-	
-	$module_index++ ;
-	print "-$module_to_remove\n" ;
-	
-	my $number_of_files_in_module = 0 ;
-	
-	for my $module_element (sort keys %{$indexed_modules_to_remove{$module_to_remove}})
-		{
-		(my $module_element_short = $module_element) =~ s{^/tmp/[^/]+/}[] ;
-		
-		$total_number_of_files++ ;
-		$number_of_files_in_module++ ;
-		
-		print "\t-$module_element_short\n" if $options->{verbose} ;
-		
-		$indexer->remove_document_with_id($indexed_modules_to_remove{$module_to_remove}{$module_element})   ;
-		}
-		
-	if ($options->{verbose})
-		{
-		printf
-			"\t[$module_index/$number_of_modules ($number_of_files_in_module) in %.3f s.]\n",
-			(time - $t0_remove_module)  ;
-		}
-	}
-
-if ($options->{verbose})
-	{
-	printf "[Removed $total_number_of_files files in $number_of_modules modules in %.3f s.]\n", (time - $t0_remove) ; 
-	}
-
-# add new modules
-$module_index = 0 ;
-$total_number_of_files = 0 ;
-
-delete $modules_in_repository{$_} for (keys %modules_up_to_date) ;
-
-$number_of_modules = scalar(keys %modules_in_repository) ;
-
-for my $module (sort keys %modules_in_repository)
-	{
-	my $t0_module = time ;
-	
-	$module_index++ ;
-	
-	my $directory = File::Temp->newdir() ;
-	my $extraction_directory = $directory->dirname;
-
-	my $next_archive_item = Archive::Tar->iter($module, 1, {filter => qr/\.pm$/} );
-
-	while(my $item = $next_archive_item->()) 
-		{
-		my $item_name = $item->name() ;
-		#~ print {*STDOUT} "$item_name\n";
-		$item->extract("$extraction_directory/$item_name") or carp "Error: failed Extracting '$item_name' from '$module'!\n";
-		}	
-	
-	my @files = File::Find::Rule
-					->file()
-					->name( '*.pod', '*.pl', '*.pm')
-					->in($extraction_directory);
-
-	my $number_of_files_in_module = scalar(@files) ;
-	$total_number_of_files += $number_of_files_in_module ;
-	
-	(my $module_to_add_short = $module) =~ s{^$cpan_mini/}[] ;
-	print "+$module_to_add_short\n" ;
-
-	my $t0_index = time ;
-	
-	for my $file (@files)
-		{
-		(my $file_short = $file) =~ s{^/tmp/[^/]+/}{} ;
-		print "\t+$file_short\n" if ($options->{verbose}) ;
-			
-		$indexer->add_files
-			(
-			FILES => [map { {NAME => $_, DESCRIPTION => $module_to_add_short} } $file],
-			MAXIMUM_DOCUMENT_SIZE => $options->{maximum_document_size},
-			) ;
-		}
-		
-	if ($options->{verbose})
-		{
-		printf
-			"\t[$module_index/$number_of_modules ($number_of_files_in_module) in "
-			. "%.3f s. (indexing: %.3f s.)]\n",
-			(time - $t0_module), (time - $t0_index)  ;
-		}
-	}
-	
-if ($options->{verbose})
-	{
-	print {*STDOUT} 
-		pluralize("[Re-indexed $total_number_of_files file(s) in ", $total_number_of_files),
-		pluralize("$number_of_modules module(s) in ", $number_of_modules),
-		sprintf("%.3f s.]\n", (time - $t0_index)) ;
-	}
-
-return ;
-}
-		
 #----------------------------------------------------------------------------------------------------------
 
 sub get_options_definition
@@ -397,6 +157,7 @@ $container ||=
 	remove_files => 0,
 	check_index => 0,
 	use_position => 0, 
+	lines => 1_000_000,
 	} ;
 	
 my @definitions = 
@@ -405,6 +166,8 @@ my @definitions =
 	'cpan_mini=s' => \$container->{cpan_mini},
 	'i|index_directory=s' => \$container->{index_directory},
 	'no_index_update' => \$container->{no_index_update},
+	'modules_only' => \$container->{modules_only},
+	'n|lines=i' => \$container->{lines},
 	'maximum_document_size' => \$container->{maximum_document_size},
 	's|search=s' => \$container->{search},
 	'v|verbose' => \$container->{verbose},
@@ -492,3 +255,5 @@ my @options = grep {++$flip % 2} @definitions ;
 print Term::Bash::Completion::Generator::generate_bash_completion_function('mci', [@options], undef, 0) ;
 exit(1) ;
 }
+
+

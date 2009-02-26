@@ -155,6 +155,7 @@ my $build = $class->new
 		'File::Find::Rule' => 0,
 		'IO::Zlib' => 0,
 		'Archive::Tar' => 0,
+		'File::Copy' => 0,
 		},
 		
 	pm_files     => \%all_modules,

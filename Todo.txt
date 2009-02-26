@@ -2,5 +2,18 @@
 # This is Todo.txt #
 #------------------#
 
-show author, id , version ???
+!show author, id , version ???
+
+#show only distribution names
+	transfor - to ::
+
+#catch tar errors
+
+#show only top xxx
+
+#re-index only if 02xxx MD5 has changed
+
+what needs be done to be able to pipe output
+
+use 12_345 for all figures
 

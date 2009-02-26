@@ -1,6 +1,6 @@
 ---
 name: CPAN-Mini-Indexed
-version: 0.02_01.1
+version: 0.03_01.2
 author:
   - 'Nadim ibn hamouda el Khemir. <nkh@cpan.org>'
 abstract: Index the content of your CPAN mini repository
@@ -9,6 +9,7 @@ resources:
   license: http://dev.perl.org/licenses/
 requires:
   Archive::Tar: 0
+  File::Copy: 0
   File::Find::Rule: 0
   File::Temp: 0.21
   Getopt::Long: 0
@@ -28,7 +29,7 @@ build_requires:
 provides:
   CPAN::Mini::Indexed:
     file: lib/CPAN/Mini/Indexed.pm
-    version: 0.02_01
+    version: 0.03_01
 generated_by: Module::Build version 0.2808
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.2.html
